@@ -14,8 +14,8 @@ import (
 	"golang.org/x/net/html"
 )
 
-func retryImmediately[T any](f func() (*T, error), maxRetryCount int) (*T, /* last error if we had to give up */ error, /* all encountered errors */ []error) {
-  // require maxRetryCount to be at least 1
+func retryImmediately[T any](f func() (*T, error), maxRetryCount int) (*T, error /* last error if we had to give up */, []error /* all encountered errors */) {
+	// require maxRetryCount to be at least 1
 	if maxRetryCount < 1 {
 		panic("maxRetryCount must be at least 1")
 	}
@@ -96,13 +96,13 @@ type EnvVars struct {
 }
 
 type AccessPointReadFromControllerGUI struct {
-	HostName          string `json:"hostname"`
-	IpAddress         string `json:"ip_address"`
+	HostName  string `json:"hostname"`
+	IpAddress string `json:"ip_address"`
 }
 
 type AccessPointDetailReadFromTargetApGUI struct {
 	Active2_4GHzConnections int `json:"active_2_4ghz_connections"`
-	Active5GHzConnections int `json:"active_5ghz_connections"`
+	Active5GHzConnections   int `json:"active_5ghz_connections"`
 }
 
 type ReconstructedApData struct {
@@ -140,8 +140,8 @@ func extractApListDataFromScriptText(script string) ([]AccessPointReadFromContro
 	aps := make([]AccessPointReadFromControllerGUI, len(data))
 	for i, apData := range data {
 		aps[i] = AccessPointReadFromControllerGUI{
-			HostName:          apData[7].(string),
-			IpAddress:         apData[13].(string),
+			HostName:  apData[7].(string),
+			IpAddress: apData[13].(string),
 		}
 	}
 
@@ -188,7 +188,7 @@ func fetchApDetailFromApGUI(env EnvVars, ap AccessPointReadFromControllerGUI) (*
 		}
 
 		return strconv.Atoi(extractNumber.FindString(countDataNode[3].FirstChild.Data))
-	}();
+	}()
 	if err != nil {
 		return nil, fmt.Errorf("failed to find 2GHz connection count: %w", err)
 	}
@@ -204,14 +204,14 @@ func fetchApDetailFromApGUI(env EnvVars, ap AccessPointReadFromControllerGUI) (*
 		}
 
 		return strconv.Atoi(extractNumber.FindString(countDataNode[3].FirstChild.Data))
-	}();
+	}()
 	if err != nil {
 		return nil, fmt.Errorf("failed to find 5GHz connection count: %w", err)
 	}
 
 	return &AccessPointDetailReadFromTargetApGUI{
 		Active2_4GHzConnections: active2_4GhzConnections,
-		Active5GHzConnections: active5GhzConnections,
+		Active5GHzConnections:   active5GhzConnections,
 	}, nil
 }
 
@@ -260,7 +260,7 @@ func reconstructAllApData(env EnvVars) ([]ReconstructedApData, error) {
 		}
 
 		reconstructedAps = append(reconstructedAps, ReconstructedApData{
-			AccessPointReadFromControllerGUI: ap,
+			AccessPointReadFromControllerGUI:     ap,
 			AccessPointDetailReadFromTargetApGUI: *detail,
 		})
 	}
