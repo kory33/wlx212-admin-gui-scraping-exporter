@@ -14,15 +14,24 @@ import (
 	"golang.org/x/net/html"
 )
 
-func retryImmediately[T any](f func() (*T, error), maxRetryCount int) (*T, error, /* retried = */ int) {
-	var err error
+func retryImmediately[T any](f func() (*T, error), maxRetryCount int) (*T, /* last error if we had to give up */ error, /* all encountered errors */ []error) {
+  // require maxRetryCount to be at least 1
+	if maxRetryCount < 1 {
+		panic("maxRetryCount must be at least 1")
+	}
+
+	var errs []error
 	for i := 0; i < maxRetryCount; i++ {
 		result, err := f()
-		if err == nil {
-			return result, nil, i
+		if err != nil {
+			errs = append(errs, err)
+			continue
 		}
+
+		return result, nil, errs
 	}
-	return nil, err, maxRetryCount
+
+	return nil, errs[len(errs)-1], errs
 }
 
 type EnvVars struct {
@@ -142,7 +151,7 @@ func fetchApDetailFromApGUI(env EnvVars, ap AccessPointReadFromControllerGUI) (A
 }
 
 func reconstructAllApData(env EnvVars) ([]ReconstructedApData, error) {
-	aps, err, retried := retryImmediately(
+	aps, err, allErrs := retryImmediately(
 		func() (*[]AccessPointReadFromControllerGUI, error) {
 			aps, err := fetchAllAccessPointsFromController(env)
 			return &aps, err
@@ -152,15 +161,15 @@ func reconstructAllApData(env EnvVars) ([]ReconstructedApData, error) {
 	if err != nil {
 		return nil, err
 	}
-	if retried > 0 {
-		slog.Info(fmt.Sprintf("retried fetching AP info from controller %d times", retried))
+	if len(allErrs) > 0 {
+		slog.Info(fmt.Sprintf("retried fetching AP info from controller %d times, last error: %s", len(allErrs), allErrs[len(allErrs)-1].Error()))
 	}
 
 	// fan-out fetching details and then join all
 	detailChan := make(chan AccessPointDetailReadFromTargetApGUI)
 	for _, ap := range *aps {
 		go func() {
-			detail, err, retried := retryImmediately(
+			detail, err, allErrs := retryImmediately(
 				func() (*AccessPointDetailReadFromTargetApGUI, error) {
 					detail, err := fetchApDetailFromApGUI(env, ap)
 					return &detail, err
@@ -168,11 +177,11 @@ func reconstructAllApData(env EnvVars) ([]ReconstructedApData, error) {
 				5,
 			)
 			if err != nil {
-				slog.Warn(fmt.Sprintf("error fetching detail for %s: after %d retries %v", ap.HostName, retried, err))
+				slog.Warn(fmt.Sprintf("error fetching detail for %s: after %d retries %v", ap.HostName, len(allErrs), err))
 				return
 			}
-			if retried > 0 {
-				slog.Info(fmt.Sprintf("retried fetching detail for %s %d times", ap.HostName, retried))
+			if len(allErrs) > 0 {
+				slog.Info(fmt.Sprintf("retried fetching detail for %s %d times, last error: %s", ap.HostName, len(allErrs), allErrs[len(allErrs)-1].Error()))
 			}
 			detailChan <- *detail
 		}()
