@@ -8,7 +8,7 @@ import (
 )
 
 var rootCmd = &cobra.Command{
-	Use: "go-cli-template",
+	Use: "wlx212-admin-gui-scraping-exporter",
 }
 
 func exitError(msg interface{}) {
