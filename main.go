@@ -22,13 +22,11 @@ func retryImmediately[T any](f func() (*T, error), maxRetryCount int) (*T, /* la
 
 	var errs []error
 	for i := 0; i < maxRetryCount; i++ {
-		result, err := f()
-		if err != nil {
+		if result, err := f(); err != nil {
 			errs = append(errs, err)
-			continue
+		} else {
+			return result, nil, errs
 		}
-
-		return result, nil, errs
 	}
 
 	return nil, errs[len(errs)-1], errs
@@ -56,12 +54,20 @@ func getHtmlWithBasicAuth(url string, user string, pass string) (*html.Node, err
 	return html.Parse(strings.NewReader(string(bytes)))
 }
 
+func htmlNodeChildren(node *html.Node) []*html.Node {
+	children := []*html.Node{}
+	for child := node.FirstChild; child != nil; child = child.NextSibling {
+		children = append(children, child)
+	}
+	return children
+}
+
 func findFirstHtmlNodeIncludingSelfSatisfyingPredicate(n *html.Node, predicate func(*html.Node) bool) *html.Node {
 	if predicate(n) {
 		return n
 	}
 
-	for child := n.FirstChild; child != nil; child = child.NextSibling {
+	for _, child := range htmlNodeChildren(n) {
 		if nodeInChild := findFirstHtmlNodeIncludingSelfSatisfyingPredicate(child, predicate); nodeInChild != nil {
 			return nodeInChild
 		}
@@ -81,14 +87,6 @@ func findFirstHtmlNodeWithIdIn(n *html.Node, id string) *html.Node {
 		}
 		return false
 	})
-}
-
-func htmlNodeChildren(node *html.Node) []*html.Node {
-	children := []*html.Node{}
-	for child := node.FirstChild; child != nil; child = child.NextSibling {
-		children = append(children, child)
-	}
-	return children
 }
 
 type EnvVars struct {
@@ -135,8 +133,7 @@ func extractApListDataFromScriptText(script string) ([]AccessPointReadFromContro
 		[]byte("]"),
 	)
 
-	err := json.Unmarshal([]byte(dataString), &data)
-	if err != nil {
+	if err := json.Unmarshal([]byte(dataString), &data); err != nil {
 		return nil, err
 	}
 
@@ -299,19 +296,22 @@ func metrics(env EnvVars, w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 
+	appendLineToResponse := func(line string) error {
+		if _, err := w.Write([]byte(line + "\n")); err != nil {
+			slog.Error(fmt.Sprintf("error writing access points: %v", err))
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return err
+		}
+		return nil
+	}
+
 	// write the response
 	w.Header().Set("Content-Type", "text/plain")
 	for _, ap := range aps {
-		_, err = w.Write([]byte(fmt.Sprintf("ap_active_connections{hostname=\"%s\",frequency=\"2.4GHz\"} %d\n", ap.HostName, ap.Active2_4GHzConnections)))
-		if err != nil {
-			slog.Error(fmt.Sprintf("error writing access points: %v", err))
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+		if err = appendLineToResponse(fmt.Sprintf("ap_active_connections{hostname=\"%s\",frequency=\"2.4GHz\"} %d", ap.HostName, ap.Active2_4GHzConnections)); err != nil {
 			return
 		}
-		_, err = w.Write([]byte(fmt.Sprintf("ap_active_connections{hostname=\"%s\",frequency=\"5GHz\"} %d\n", ap.HostName, ap.Active5GHzConnections)))
-		if err != nil {
-			slog.Error(fmt.Sprintf("error writing access points: %v", err))
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+		if err = appendLineToResponse(fmt.Sprintf("ap_active_connections{hostname=\"%s\",frequency=\"5GHz\"} %d", ap.HostName, ap.Active5GHzConnections)); err != nil {
 			return
 		}
 	}
