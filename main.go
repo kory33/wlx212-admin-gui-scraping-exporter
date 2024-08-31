@@ -186,7 +186,7 @@ func main() {
 		metrics(env, w, r)
 	})
 
-	if err := http.ListenAndServe(":"+string(serverPort), nil); err != nil {
+	if err := http.ListenAndServe(":"+strconv.Itoa(serverPort), nil); err != nil {
 		slog.Error("error starting server", "error", err.Error())
 	}
 }
