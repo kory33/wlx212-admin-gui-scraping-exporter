@@ -65,7 +65,7 @@ func findScript(n *html.Node) *string {
 }
 
 var extractNumber = regexp.MustCompile("[0-9]+")
-var lastElementTrailingComma = regexp.MustCompile(",\\s*]")
+var lastElementTrailingComma = regexp.MustCompile(`,\s*]`)
 
 func fetchAllAccessPoints(env EnvVars) ([]AccessPointReadFromApGUI, error) {
 	gui, err := fetchControllerGUIHtml(env)
@@ -145,7 +145,12 @@ func metrics(env EnvVars, w http.ResponseWriter, _ *http.Request) {
 	// write the response
 	w.Header().Set("Content-Type", "text/plain")
 	for _, ap := range aps {
-		w.Write([]byte(fmt.Sprintf("ap_active_connections{hostname=\"%s\"} %d\n", ap.HostName, ap.ActiveConnections)))
+		_, err = w.Write([]byte(fmt.Sprintf("ap_active_connections{hostname=\"%s\"} %d\n", ap.HostName, ap.ActiveConnections)))
+		if err != nil {
+			slog.Error(fmt.Sprintf("error writing access points: %v", err))
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
 }
 
@@ -171,5 +176,8 @@ func main() {
 	http.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
 		metrics(env, w, r)
 	})
-	http.ListenAndServe(":8080", nil)
+
+	if err := http.ListenAndServe(":8080", nil); err != nil {
+		slog.Error("error starting server", "error", err.Error())
+	}
 }
