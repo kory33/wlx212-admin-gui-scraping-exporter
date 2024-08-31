@@ -14,6 +14,17 @@ import (
 	"golang.org/x/net/html"
 )
 
+func retryImmediately[T any](f func() (*T, error), maxRetryCount int) (*T, error, /* retried = */ int) {
+	var err error
+	for i := 0; i < maxRetryCount; i++ {
+		result, err := f()
+		if err == nil {
+			return result, nil, i
+		}
+	}
+	return nil, err, maxRetryCount
+}
+
 type EnvVars struct {
 	VirtualControllerVIP     string
 	VirtualControllerGUIUser string
@@ -135,25 +146,43 @@ func fetchApDetailFromApGUI(env EnvVars, ap AccessPointReadFromControllerGUI) (A
 }
 
 func reconstructAllApData(env EnvVars) ([]ReconstructedApData, error) {
-	aps, err := fetchAllAccessPointsFromController(env)
+	aps, err, retried := retryImmediately(
+		func() (*[]AccessPointReadFromControllerGUI, error) {
+			aps, err := fetchAllAccessPointsFromController(env)
+			return &aps, err
+		},
+		3,
+	)
 	if err != nil {
 		return nil, err
 	}
+	if retried > 0 {
+		slog.Info(fmt.Sprintf("retried fetching AP info from controller %d times", retried))
+	}
 
 	detailChan := make(chan AccessPointDetailReadFromTargetApGUI)
-	for _, ap := range aps {
+	for _, ap := range *aps {
 		go func() {
-			detail, err := fetchApDetailFromApGUI(env, ap)
+			detail, err, retried := retryImmediately(
+				func() (*AccessPointDetailReadFromTargetApGUI, error) {
+					detail, err := fetchApDetailFromApGUI(env, ap)
+					return &detail, err
+				},
+				5,
+			)
 			if err != nil {
-				slog.Warn(fmt.Sprintf("error fetching detail for %s: %v", ap.HostName, err))
+				slog.Warn(fmt.Sprintf("error fetching detail for %s: after %d retries %v", ap.HostName, retried, err))
 				return
 			}
-			detailChan <- detail
+			if retried > 0 {
+				slog.Info(fmt.Sprintf("retried fetching detail for %s %d times", ap.HostName, retried))
+			}
+			detailChan <- *detail
 		}()
 	}
 
-	reconstructedAps := make([]ReconstructedApData, len(aps))
-	for i, ap := range aps {
+	reconstructedAps := make([]ReconstructedApData, len(*aps))
+	for i, ap := range *aps {
 		reconstructedAps[i] = ReconstructedApData{
 			AccessPointReadFromControllerGUI: ap,
 			AccessPointDetailReadFromTargetApGUI: <-detailChan,
