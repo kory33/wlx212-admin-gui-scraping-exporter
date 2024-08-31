@@ -47,27 +47,27 @@ type ReconstructedApData struct {
 	AccessPointDetailReadFromTargetApGUI
 }
 
-func fetchControllerGUIHtml(env EnvVars) (string, error) {
+func fetchControllerGUIHtml(env EnvVars) (*html.Node, error) {
 	// fetch http://<VirtualControllerVIP>/top-virtual-controller.html with basic auth
 	req, err := http.NewRequest("GET", fmt.Sprintf("http://%s/top-virtual-controller.html", env.VirtualControllerVIP), nil)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	req.SetBasicAuth(env.VirtualControllerGUIUser, env.VirtualControllerGUIPass)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	defer resp.Body.Close()
 
 	bytes, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
-	return string(bytes), nil
+	return html.Parse(strings.NewReader(string(bytes)))
 }
 
 func findScriptContainingApListData(n *html.Node) *string {
@@ -122,18 +122,14 @@ func extractApListDataFromScriptText(script string) ([]AccessPointReadFromContro
 }
 
 func fetchAllAccessPointsFromController(env EnvVars) ([]AccessPointReadFromControllerGUI, error) {
-	gui, err := fetchControllerGUIHtml(env)
+	topHtmlNode, err := fetchControllerGUIHtml(env)
 	if err != nil {
 		return nil, err
 	}
 
 	// search for a script tag containing "var apListData = [...];"
-	topNode, err := html.Parse(strings.NewReader(gui))
-	if err != nil {
-		return nil, err
-	}
 
-	script := findScriptContainingApListData(topNode)
+	script := findScriptContainingApListData(topHtmlNode)
 	if script == nil {
 		return nil, fmt.Errorf("could not find script node with apListData")
 	}
@@ -160,6 +156,7 @@ func reconstructAllApData(env EnvVars) ([]ReconstructedApData, error) {
 		slog.Info(fmt.Sprintf("retried fetching AP info from controller %d times", retried))
 	}
 
+	// fan-out fetching details and then join all
 	detailChan := make(chan AccessPointDetailReadFromTargetApGUI)
 	for _, ap := range *aps {
 		go func() {
