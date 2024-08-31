@@ -34,15 +34,66 @@ func retryImmediately[T any](f func() (*T, error), maxRetryCount int) (*T, /* la
 	return nil, errs[len(errs)-1], errs
 }
 
-func findHtmlNodeIncludingSelfSatisfyingPredicate(n *html.Node, predicate func(*html.Node) bool) *html.Node {
+func getHtmlWithBasicAuth(url string, user string, pass string) (*html.Node, error) {
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.SetBasicAuth(user, pass)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	bytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	return html.Parse(strings.NewReader(string(bytes)))
+}
+
+func findFirstHtmlNodeIncludingSelfSatisfyingPredicate(n *html.Node, predicate func(*html.Node) bool) *html.Node {
 	if predicate(n) {
 		return n
 	}
 
 	for child := n.FirstChild; child != nil; child = child.NextSibling {
-		if nodeInChild := findHtmlNodeIncludingSelfSatisfyingPredicate(child, predicate); nodeInChild != nil {
+		if nodeInChild := findFirstHtmlNodeIncludingSelfSatisfyingPredicate(child, predicate); nodeInChild != nil {
 			return nodeInChild
 		}
+	}
+
+	return nil
+}
+
+func findFirstHtmlNodeWithIdIn(n *html.Node, id string) *html.Node {
+	return findFirstHtmlNodeIncludingSelfSatisfyingPredicate(n, func(n *html.Node) bool {
+		if n.Type == html.ElementNode {
+			for _, attr := range n.Attr {
+				if attr.Key == "id" && attr.Val == id {
+					return true
+				}
+			}
+		}
+		return false
+	})
+}
+
+func childAtIndex(node *html.Node, index int) *html.Node {
+	if index < 0 {
+		panic("childAtIndex: index must be non-negative, got " + strconv.Itoa(index))
+	}
+	
+	nextNodeIndex := 0
+	for child := node.FirstChild; child != nil; child = child.NextSibling {
+		if nextNodeIndex == index {
+			return child
+		}
+		nextNodeIndex++
 	}
 
 	return nil
@@ -61,8 +112,8 @@ type AccessPointReadFromControllerGUI struct {
 }
 
 type AccessPointDetailReadFromTargetApGUI struct {
-	Active5GHzConnections int `json:"active_5ghz_connections"`
 	Active2_4GHzConnections int `json:"active_2_4ghz_connections"`
+	Active5GHzConnections int `json:"active_5ghz_connections"`
 }
 
 type ReconstructedApData struct {
@@ -70,31 +121,8 @@ type ReconstructedApData struct {
 	AccessPointDetailReadFromTargetApGUI
 }
 
-func fetchControllerGUIHtml(env EnvVars) (*html.Node, error) {
-	// fetch http://<VirtualControllerVIP>/top-virtual-controller.html with basic auth
-	req, err := http.NewRequest("GET", fmt.Sprintf("http://%s/top-virtual-controller.html", env.VirtualControllerVIP), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	req.SetBasicAuth(env.VirtualControllerGUIUser, env.VirtualControllerGUIPass)
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	bytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	return html.Parse(strings.NewReader(string(bytes)))
-}
-
 func findScriptContainingApListData(topNode *html.Node) *string {
-	node := findHtmlNodeIncludingSelfSatisfyingPredicate(topNode, func(n *html.Node) bool {
+	node := findFirstHtmlNodeIncludingSelfSatisfyingPredicate(topNode, func(n *html.Node) bool {
 		return n.Type == html.ElementNode && n.Data == "script" && n.FirstChild != nil && strings.Contains(n.FirstChild.Data, "var apListData=[")
 	})
 
@@ -141,7 +169,11 @@ func extractApListDataFromScriptText(script string) ([]AccessPointReadFromContro
 }
 
 func fetchAllAccessPointsFromController(env EnvVars) ([]AccessPointReadFromControllerGUI, error) {
-	topHtmlNode, err := fetchControllerGUIHtml(env)
+	topHtmlNode, err := getHtmlWithBasicAuth(
+		fmt.Sprintf("http://%s/top-virtual-controller.html", env.VirtualControllerVIP),
+		env.VirtualControllerGUIUser,
+		env.VirtualControllerGUIPass,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -155,8 +187,50 @@ func fetchAllAccessPointsFromController(env EnvVars) ([]AccessPointReadFromContr
 	return extractApListDataFromScriptText(*script)
 }
 
-func fetchApDetailFromApGUI(env EnvVars, ap AccessPointReadFromControllerGUI) (AccessPointDetailReadFromTargetApGUI, error) {
-	return AccessPointDetailReadFromTargetApGUI{}, nil
+func fetchApDetailFromApGUI(env EnvVars, ap AccessPointReadFromControllerGUI) (*AccessPointDetailReadFromTargetApGUI, error) {
+	topHtmlNode, err := getHtmlWithBasicAuth(
+		fmt.Sprintf("http://%s/manage-system.html", ap.IpAddress),
+		env.VirtualControllerGUIUser,
+		env.VirtualControllerGUIPass,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	active2_4GhzConnections, err := func() (int, error) {
+		tableRow := findFirstHtmlNodeWithIdIn(topHtmlNode, "2G_connect_count_form")
+		if tableRow == nil {
+			return 0, fmt.Errorf("no node with id=2G_connect_count_form")
+		}
+		countDataNode := childAtIndex(tableRow, 1)
+		if countDataNode == nil {
+			return 0, fmt.Errorf("no child at index 1")
+		}
+		return strconv.Atoi(extractNumber.FindString(countDataNode.FirstChild.Data))
+	}();
+	if err != nil {
+		return nil, fmt.Errorf("failed to find 2GHz connection count: %w", err)
+	}
+
+	active5GhzConnections, err := func() (int, error) {
+		tableRow := findFirstHtmlNodeWithIdIn(topHtmlNode, "5G1_connect_count_form")
+		if tableRow == nil {
+			return 0, fmt.Errorf("no node with id=5G1_connect_count_form")
+		}
+		countDataNode := childAtIndex(tableRow, 1)
+		if countDataNode == nil {
+			return 0, fmt.Errorf("no child at index 1")
+		}
+		return strconv.Atoi(extractNumber.FindString(countDataNode.FirstChild.Data))
+	}();
+	if err != nil {
+		return nil, fmt.Errorf("failed to find 5GHz connection count: %w", err)
+	}
+
+	return &AccessPointDetailReadFromTargetApGUI{
+		Active2_4GHzConnections: active2_4GhzConnections,
+		Active5GHzConnections: active5GhzConnections,
+	}, nil
 }
 
 func reconstructAllApData(env EnvVars) ([]ReconstructedApData, error) {
@@ -174,34 +248,39 @@ func reconstructAllApData(env EnvVars) ([]ReconstructedApData, error) {
 		slog.Info(fmt.Sprintf("retried fetching AP info from controller %d times, last error: %s", len(allErrs), allErrs[len(allErrs)-1].Error()))
 	}
 
-	// fan-out fetching details and then join all
-	detailChan := make(chan AccessPointDetailReadFromTargetApGUI)
+	// fan-out fetching details and then join all.
+	// This process may fail, in which case nil must be communicated.
+	detailChan := make(chan *AccessPointDetailReadFromTargetApGUI)
 	for _, ap := range *aps {
 		go func() {
 			detail, err, allErrs := retryImmediately(
-				func() (*AccessPointDetailReadFromTargetApGUI, error) {
-					detail, err := fetchApDetailFromApGUI(env, ap)
-					return &detail, err
-				},
+				func() (*AccessPointDetailReadFromTargetApGUI, error) { return fetchApDetailFromApGUI(env, ap) },
 				5,
 			)
 			if err != nil {
-				slog.Warn(fmt.Sprintf("error fetching detail for %s: after %d retries %v", ap.HostName, len(allErrs), err))
+				slog.Warn(fmt.Sprintf("error fetching detail for %s: error after %d retries: %v", ap.HostName, len(allErrs), err))
+				detailChan <- nil
 				return
 			}
 			if len(allErrs) > 0 {
-				slog.Info(fmt.Sprintf("retried fetching detail for %s %d times, last error: %s", ap.HostName, len(allErrs), allErrs[len(allErrs)-1].Error()))
+				slog.Info(fmt.Sprintf("retried fetching detail for %s %d times, last error: %v", ap.HostName, len(allErrs), allErrs[len(allErrs)-1]))
 			}
-			detailChan <- *detail
+			detailChan <- detail
 		}()
 	}
 
-	reconstructedAps := make([]ReconstructedApData, len(*aps))
-	for i, ap := range *aps {
-		reconstructedAps[i] = ReconstructedApData{
-			AccessPointReadFromControllerGUI: ap,
-			AccessPointDetailReadFromTargetApGUI: <-detailChan,
+	reconstructedAps := []ReconstructedApData{}
+	for _, ap := range *aps {
+		detail := <-detailChan
+		if detail == nil {
+			slog.Warn(fmt.Sprintf("No details obtained for %s", ap.HostName))
+			continue
 		}
+
+		reconstructedAps = append(reconstructedAps, ReconstructedApData{
+			AccessPointReadFromControllerGUI: ap,
+			AccessPointDetailReadFromTargetApGUI: *detail,
+		})
 	}
 
 	return reconstructedAps, nil
