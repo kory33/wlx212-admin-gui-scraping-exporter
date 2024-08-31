@@ -34,6 +34,20 @@ func retryImmediately[T any](f func() (*T, error), maxRetryCount int) (*T, /* la
 	return nil, errs[len(errs)-1], errs
 }
 
+func findHtmlNodeIncludingSelfSatisfyingPredicate(n *html.Node, predicate func(*html.Node) bool) *html.Node {
+	if predicate(n) {
+		return n
+	}
+
+	for child := n.FirstChild; child != nil; child = child.NextSibling {
+		if nodeInChild := findHtmlNodeIncludingSelfSatisfyingPredicate(child, predicate); nodeInChild != nil {
+			return nodeInChild
+		}
+	}
+
+	return nil
+}
+
 type EnvVars struct {
 	VirtualControllerVIP     string
 	VirtualControllerGUIUser string
@@ -79,20 +93,16 @@ func fetchControllerGUIHtml(env EnvVars) (*html.Node, error) {
 	return html.Parse(strings.NewReader(string(bytes)))
 }
 
-func findScriptContainingApListData(n *html.Node) *string {
-	if n.Type == html.ElementNode && n.Data == "script" && n.FirstChild != nil {
-		if strings.Contains(n.FirstChild.Data, "var apListData=[") {
-			return &n.FirstChild.Data
-		}
-	}
+func findScriptContainingApListData(topNode *html.Node) *string {
+	node := findHtmlNodeIncludingSelfSatisfyingPredicate(topNode, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "script" && n.FirstChild != nil && strings.Contains(n.FirstChild.Data, "var apListData=[")
+	})
 
-	for child := n.FirstChild; child != nil; child = child.NextSibling {
-		if nodeInChild := findScriptContainingApListData(child); nodeInChild != nil {
-			return nodeInChild
-		}
+	if node != nil {
+		return &node.FirstChild.Data
+	} else {
+		return nil
 	}
-
-	return nil
 }
 
 var extractNumber = regexp.MustCompile("[0-9]+")
@@ -137,7 +147,6 @@ func fetchAllAccessPointsFromController(env EnvVars) ([]AccessPointReadFromContr
 	}
 
 	// search for a script tag containing "var apListData = [...];"
-
 	script := findScriptContainingApListData(topHtmlNode)
 	if script == nil {
 		return nil, fmt.Errorf("could not find script node with apListData")
