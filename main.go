@@ -99,7 +99,6 @@ type EnvVars struct {
 
 type AccessPointReadFromControllerGUI struct {
 	HostName          string `json:"hostname"`
-	ActiveConnections int    `json:"active_connections"`
 	IpAddress         string `json:"ip_address"`
 }
 
@@ -143,16 +142,8 @@ func extractApListDataFromScriptText(script string) ([]AccessPointReadFromContro
 
 	aps := make([]AccessPointReadFromControllerGUI, len(data))
 	for i, apData := range data {
-		hostName := apData[7].(string)
-		// apData[10] is suppsed to be a string like "9/100" or "10/100", so parse the first number
-		activeConnections, err := strconv.Atoi(extractNumber.FindString(apData[10].(string)))
-		if err != nil {
-			return nil, err
-		}
-
 		aps[i] = AccessPointReadFromControllerGUI{
-			HostName:          hostName,
-			ActiveConnections: activeConnections,
+			HostName:          apData[7].(string),
 			IpAddress:         apData[13].(string),
 		}
 	}
