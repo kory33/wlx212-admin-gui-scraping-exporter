@@ -164,6 +164,13 @@ func requireNonEmptyEnv(key string) string {
 }
 
 func main() {
+	var serverPort int
+	if port, err := strconv.Atoi(os.Getenv("PORT")); err == nil {
+		serverPort = port
+	} else {
+		serverPort = 8080
+	}
+
 	env := EnvVars{
 		VirtualControllerVIP:     requireNonEmptyEnv("VIRTUAL_CONTROLLER_VIP"),
 		VirtualControllerGUIUser: requireNonEmptyEnv("VIRTUAL_CONTROLLER_GUI_USER"),
@@ -177,7 +184,7 @@ func main() {
 		metrics(env, w, r)
 	})
 
-	if err := http.ListenAndServe(":8080", nil); err != nil {
+	if err := http.ListenAndServe(":"+string(serverPort), nil); err != nil {
 		slog.Error("error starting server", "error", err.Error())
 	}
 }

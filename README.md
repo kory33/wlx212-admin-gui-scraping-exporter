@@ -21,7 +21,17 @@ Example response on `/aplist`
 [{"hostname":"ap-01","active_connections":10},{"hostname":"ap-02","active_connections":13},{"hostname":"ap-03","active_connections":12}]
 ```
 
-## build
+## Running the server
+
+The server takes no command-line argument and all parameters are controlled by one of the following environment variables:
+
+- Required:
+  - `VIRTUAL_CONTROLLER_VIP` - the virtual IP address of the virtual controller
+  - `VIRTUAL_CONTROLLER_GUI_USER` + `VIRTUAL_CONTROLLER_GUI_PASS` - login credential for accessing GUI of the virtual controller
+- Optional:
+  - `PORT` - the port to which the exporter server should be bound
+
+## Build
 
 ```
 go build -ldflags="-w -s -extldflags '-static'" -o=dist/wlx212-gui-scraping-exporter
