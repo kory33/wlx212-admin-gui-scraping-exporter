@@ -20,10 +20,18 @@ type EnvVars struct {
 	VirtualControllerGUIPass string
 }
 
-type AccessPointReadFromApGUI struct {
+type AccessPointReadFromControllerGUI struct {
 	HostName          string `json:"hostname"`
 	ActiveConnections int    `json:"active_connections"`
 	IpAddress         string `json:"ip_address"`
+}
+
+type AccessPointDetailReadFromTargetApGUI struct {
+}
+
+type ReconstructedApData struct {
+	AccessPointReadFromControllerGUI
+	AccessPointDetailReadFromTargetApGUI
 }
 
 func fetchControllerGUIHtml(env EnvVars) (string, error) {
@@ -49,7 +57,7 @@ func fetchControllerGUIHtml(env EnvVars) (string, error) {
 	return string(bytes), nil
 }
 
-func findScript(n *html.Node) *string {
+func findScriptContainingApListData(n *html.Node) *string {
 	if n.Type == html.ElementNode && n.Data == "script" && n.FirstChild != nil {
 		if strings.Contains(n.FirstChild.Data, "var apListData=[") {
 			return &n.FirstChild.Data
@@ -57,7 +65,7 @@ func findScript(n *html.Node) *string {
 	}
 
 	for child := n.FirstChild; child != nil; child = child.NextSibling {
-		if nodeInChild := findScript(child); nodeInChild != nil {
+		if nodeInChild := findScriptContainingApListData(child); nodeInChild != nil {
 			return nodeInChild
 		}
 	}
@@ -68,7 +76,39 @@ func findScript(n *html.Node) *string {
 var extractNumber = regexp.MustCompile("[0-9]+")
 var lastElementTrailingComma = regexp.MustCompile(`,\s*]`)
 
-func fetchAllAccessPoints(env EnvVars) ([]AccessPointReadFromApGUI, error) {
+func extractApListDataFromScriptText(script string) ([]AccessPointReadFromControllerGUI, error) {
+	var data [][]interface{}
+	dataString := lastElementTrailingComma.ReplaceAll(
+		[]byte(strings.TrimSuffix(strings.TrimPrefix(strings.TrimSpace(script), "var apListData="), ";")),
+		// replace last element's trailing comma, as in [..., ...,] -> [..., ...]
+		[]byte("]"),
+	)
+
+	err := json.Unmarshal([]byte(dataString), &data)
+	if err != nil {
+		return nil, err
+	}
+
+	aps := make([]AccessPointReadFromControllerGUI, len(data))
+	for i, apData := range data {
+		hostName := apData[7].(string)
+		// apData[10] is suppsed to be a string like "9/100" or "10/100", so parse the first number
+		activeConnections, err := strconv.Atoi(extractNumber.FindString(apData[10].(string)))
+		if err != nil {
+			return nil, err
+		}
+
+		aps[i] = AccessPointReadFromControllerGUI{
+			HostName:          hostName,
+			ActiveConnections: activeConnections,
+			IpAddress:         apData[13].(string),
+		}
+	}
+
+	return aps, nil
+}
+
+func fetchAllAccessPointsFromController(env EnvVars) ([]AccessPointReadFromControllerGUI, error) {
 	gui, err := fetchControllerGUIHtml(env)
 	if err != nil {
 		return nil, err
@@ -80,46 +120,18 @@ func fetchAllAccessPoints(env EnvVars) ([]AccessPointReadFromApGUI, error) {
 		return nil, err
 	}
 
-	script := findScript(topNode)
+	script := findScriptContainingApListData(topNode)
 	if script == nil {
 		return nil, fmt.Errorf("could not find script node with apListData")
 	}
 
-	var data [][]interface{}
-	dataString := lastElementTrailingComma.ReplaceAll(
-		[]byte(strings.TrimSuffix(strings.TrimPrefix(strings.TrimSpace(*script), "var apListData="), ";")),
-		// replace last element's trailing comma, as in [..., ...,] -> [..., ...]
-		[]byte("]"),
-	)
-
-	err = json.Unmarshal([]byte(dataString), &data)
-	if err != nil {
-		return nil, err
-	}
-
-	aps := make([]AccessPointReadFromApGUI, len(data))
-	for i, apData := range data {
-		hostName := apData[7].(string)
-		// apData[10] is suppsed to be a string like "9/100" or "10/100", so parse the first number
-		activeConnections, err := strconv.Atoi(extractNumber.FindString(apData[10].(string)))
-		if err != nil {
-			return nil, err
-		}
-
-		aps[i] = AccessPointReadFromApGUI{
-			HostName:          hostName,
-			ActiveConnections: activeConnections,
-			IpAddress:         apData[13].(string),
-		}
-	}
-
-	return aps, nil
+	return extractApListDataFromScriptText(*script)
 }
 
 // return fetchAllAccessPoints as a JSON response
 func aplist(env EnvVars, w http.ResponseWriter, _ *http.Request) {
 	// fetch all access points
-	aps, err := fetchAllAccessPoints(env)
+	aps, err := fetchAllAccessPointsFromController(env)
 	if err != nil {
 		slog.Warn(fmt.Sprintf("error fetching access points: %v", err))
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -137,7 +149,7 @@ func aplist(env EnvVars, w http.ResponseWriter, _ *http.Request) {
 
 func metrics(env EnvVars, w http.ResponseWriter, _ *http.Request) {
 	// fetch all access points
-	aps, err := fetchAllAccessPoints(env)
+	aps, err := fetchAllAccessPointsFromController(env)
 	if err != nil {
 		slog.Warn(fmt.Sprintf("error fetching access points: %v", err))
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -166,6 +178,8 @@ func requireNonEmptyEnv(key string) string {
 }
 
 func main() {
+	slog.Info("Reading environment variables...")
+
 	var serverPort int
 	if port, err := strconv.Atoi(os.Getenv("PORT")); err == nil {
 		serverPort = port
@@ -186,6 +200,7 @@ func main() {
 		metrics(env, w, r)
 	})
 
+	slog.Info("Starting server...", "port", serverPort)
 	if err := http.ListenAndServe(":"+strconv.Itoa(serverPort), nil); err != nil {
 		slog.Error("error starting server", "error", err.Error())
 	}
