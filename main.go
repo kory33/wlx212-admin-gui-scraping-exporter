@@ -27,6 +27,8 @@ type AccessPointReadFromControllerGUI struct {
 }
 
 type AccessPointDetailReadFromTargetApGUI struct {
+	Active5GHzConnections int `json:"active_5ghz_connections"`
+	Active2_4GHzConnections int `json:"active_2_4ghz_connections"`
 }
 
 type ReconstructedApData struct {
@@ -128,10 +130,43 @@ func fetchAllAccessPointsFromController(env EnvVars) ([]AccessPointReadFromContr
 	return extractApListDataFromScriptText(*script)
 }
 
+func fetchApDetailFromApGUI(env EnvVars, ap AccessPointReadFromControllerGUI) (AccessPointDetailReadFromTargetApGUI, error) {
+	return AccessPointDetailReadFromTargetApGUI{}, nil
+}
+
+func reconstructAllApData(env EnvVars) ([]ReconstructedApData, error) {
+	aps, err := fetchAllAccessPointsFromController(env)
+	if err != nil {
+		return nil, err
+	}
+
+	detailChan := make(chan AccessPointDetailReadFromTargetApGUI)
+	for _, ap := range aps {
+		go func() {
+			detail, err := fetchApDetailFromApGUI(env, ap)
+			if err != nil {
+				slog.Warn(fmt.Sprintf("error fetching detail for %s: %v", ap.HostName, err))
+				return
+			}
+			detailChan <- detail
+		}()
+	}
+
+	reconstructedAps := make([]ReconstructedApData, len(aps))
+	for i, ap := range aps {
+		reconstructedAps[i] = ReconstructedApData{
+			AccessPointReadFromControllerGUI: ap,
+			AccessPointDetailReadFromTargetApGUI: <-detailChan,
+		}
+	}
+
+	return reconstructedAps, nil
+}
+
 // return fetchAllAccessPoints as a JSON response
 func aplist(env EnvVars, w http.ResponseWriter, _ *http.Request) {
 	// fetch all access points
-	aps, err := fetchAllAccessPointsFromController(env)
+	aps, err := reconstructAllApData(env)
 	if err != nil {
 		slog.Warn(fmt.Sprintf("error fetching access points: %v", err))
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -149,7 +184,7 @@ func aplist(env EnvVars, w http.ResponseWriter, _ *http.Request) {
 
 func metrics(env EnvVars, w http.ResponseWriter, _ *http.Request) {
 	// fetch all access points
-	aps, err := fetchAllAccessPointsFromController(env)
+	aps, err := reconstructAllApData(env)
 	if err != nil {
 		slog.Warn(fmt.Sprintf("error fetching access points: %v", err))
 		http.Error(w, err.Error(), http.StatusInternalServerError)
