@@ -1,4 +1,4 @@
-module github.com/skanehira/go-cli-template
+module github.com/kory33/wlx212-gui-scraping-exporter
 
 go 1.23
 

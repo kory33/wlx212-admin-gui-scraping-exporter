@@ -1,6 +1,6 @@
 package main
 
-import "github.com/skanehira/go-cli-template/cmd"
+import "github.com/kory33/wlx212-gui-scraping-exporter/cmd"
 
 func main() {
 	cmd.Execute()

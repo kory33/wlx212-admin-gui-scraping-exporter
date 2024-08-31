@@ -1,27 +1,19 @@
-![GitHub Repo stars](https://img.shields.io/github/stars/skanehira/go-cli-template?style=social)
-![GitHub](https://img.shields.io/github/license/skanehira/go-cli-template)
-![GitHub go.mod Go version](https://img.shields.io/github/go-mod/go-version/skanehira/go-cli-template)
-![GitHub all releases](https://img.shields.io/github/downloads/skanehira/go-cli-template/total)
-![GitHub CI Status](https://img.shields.io/github/actions/workflow/status/skanehira/go-cli-template/ci.yaml?branch=main&label=CI)
-![GitHub Release Status](https://img.shields.io/github/v/release/skanehira/go-cli-template)
+![GitHub Repo stars](https://img.shields.io/github/stars/kory33/wlx212-gui-scraping-exporter?style=social)
+![GitHub](https://img.shields.io/github/license/kory33/wlx212-gui-scraping-exporter)
+![GitHub go.mod Go version](https://img.shields.io/github/go-mod/go-version/kory33/wlx212-gui-scraping-exporter)
+![GitHub all releases](https://img.shields.io/github/downloads/kory33/wlx212-gui-scraping-exporter/total)
+![GitHub CI Status](https://img.shields.io/github/actions/workflow/status/kory33/wlx212-gui-scraping-exporter/ci.yaml?branch=main&label=CI)
+![GitHub Release Status](https://img.shields.io/github/v/release/kory33/wlx212-gui-scraping-exporter)
 
-# go-cli-template
-This template is help you to quick implement some CLI using Go.
+# wlx212-gui-scraping-exporter
 
-This repository is contains bellow.
+Example response on `/metrics`
 
-- minimal CLI implementation using [spf13/cobra](https://github.com/spf13/cobra)
-- CI/CD
-  - golangci-lint
-  - go test
-  - goreleaser
-  - Dependabot
-  - CodeQL Analysis (Go)
-
-## How to use
-1. fork this repository
-2. replace `skanehira` to your user name using `sed`(or others)
-3. run `make init`
+```
+ap_connections{hostname="ap-01"} 10
+ap_connections{hostname="ap-02"} 13
+ap_connections{hostname="ap-03"} 12
+```
 
 ## Author
-skanehira
+kory33
