@@ -83,20 +83,26 @@ func findFirstHtmlNodeWithIdIn(n *html.Node, id string) *html.Node {
 	})
 }
 
+func htmlNodeChildren(node *html.Node) []*html.Node {
+	children := []*html.Node{}
+	for child := node.FirstChild; child != nil; child = child.NextSibling {
+		children = append(children, child)
+	}
+	return children
+}
+
 func childAtIndex(node *html.Node, index int) *html.Node {
 	if index < 0 {
 		panic("childAtIndex: index must be non-negative, got " + strconv.Itoa(index))
 	}
 	
 	nextNodeIndex := 0
-	for child := node.FirstChild; child != nil; child = child.NextSibling {
-		if nextNodeIndex == index {
-			return child
-		}
+	var child *html.Node
+	for child = node.FirstChild; child != nil && index < nextNodeIndex; child = child.NextSibling {
 		nextNodeIndex++
 	}
 
-	return nil
+	return child
 }
 
 type EnvVars struct {
@@ -202,11 +208,12 @@ func fetchApDetailFromApGUI(env EnvVars, ap AccessPointReadFromControllerGUI) (*
 		if tableRow == nil {
 			return 0, fmt.Errorf("no node with id=2G_connect_count_form")
 		}
-		countDataNode := childAtIndex(tableRow, 1)
-		if countDataNode == nil {
-			return 0, fmt.Errorf("no child at index 1")
+		countDataNode := htmlNodeChildren(tableRow)
+		if len(countDataNode) < 4 || countDataNode[3].FirstChild == nil {
+			return 0, fmt.Errorf("child of node at index 4 expected")
 		}
-		return strconv.Atoi(extractNumber.FindString(countDataNode.FirstChild.Data))
+
+		return strconv.Atoi(extractNumber.FindString(countDataNode[3].FirstChild.Data))
 	}();
 	if err != nil {
 		return nil, fmt.Errorf("failed to find 2GHz connection count: %w", err)
@@ -217,11 +224,12 @@ func fetchApDetailFromApGUI(env EnvVars, ap AccessPointReadFromControllerGUI) (*
 		if tableRow == nil {
 			return 0, fmt.Errorf("no node with id=5G1_connect_count_form")
 		}
-		countDataNode := childAtIndex(tableRow, 1)
-		if countDataNode == nil {
-			return 0, fmt.Errorf("no child at index 1")
+		countDataNode := htmlNodeChildren(tableRow)
+		if len(countDataNode) < 4 || countDataNode[3].FirstChild == nil {
+			return 0, fmt.Errorf("child of node at index 4 expected")
 		}
-		return strconv.Atoi(extractNumber.FindString(countDataNode.FirstChild.Data))
+
+		return strconv.Atoi(extractNumber.FindString(countDataNode[3].FirstChild.Data))
 	}();
 	if err != nil {
 		return nil, fmt.Errorf("failed to find 5GHz connection count: %w", err)
