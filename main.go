@@ -91,20 +91,6 @@ func htmlNodeChildren(node *html.Node) []*html.Node {
 	return children
 }
 
-func childAtIndex(node *html.Node, index int) *html.Node {
-	if index < 0 {
-		panic("childAtIndex: index must be non-negative, got " + strconv.Itoa(index))
-	}
-	
-	nextNodeIndex := 0
-	var child *html.Node
-	for child = node.FirstChild; child != nil && index < nextNodeIndex; child = child.NextSibling {
-		nextNodeIndex++
-	}
-
-	return child
-}
-
 type EnvVars struct {
 	VirtualControllerVIP     string
 	VirtualControllerGUIUser string
@@ -325,7 +311,13 @@ func metrics(env EnvVars, w http.ResponseWriter, _ *http.Request) {
 	// write the response
 	w.Header().Set("Content-Type", "text/plain")
 	for _, ap := range aps {
-		_, err = w.Write([]byte(fmt.Sprintf("ap_active_connections{hostname=\"%s\"} %d\n", ap.HostName, ap.ActiveConnections)))
+		_, err = w.Write([]byte(fmt.Sprintf("ap_active_connections{hostname=\"%s\",frequency=\"2.4GHz\"} %d\n", ap.HostName, ap.Active2_4GHzConnections)))
+		if err != nil {
+			slog.Error(fmt.Sprintf("error writing access points: %v", err))
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		_, err = w.Write([]byte(fmt.Sprintf("ap_active_connections{hostname=\"%s\",frequency=\"5GHz\"} %d\n", ap.HostName, ap.Active5GHzConnections)))
 		if err != nil {
 			slog.Error(fmt.Sprintf("error writing access points: %v", err))
 			http.Error(w, err.Error(), http.StatusInternalServerError)
