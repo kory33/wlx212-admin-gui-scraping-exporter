@@ -23,6 +23,7 @@ type EnvVars struct {
 type AccessPointReadFromApGUI struct {
 	HostName          string `json:"hostname"`
 	ActiveConnections int    `json:"active_connections"`
+	IpAddress         string `json:"ip_address"`
 }
 
 func fetchControllerGUIHtml(env EnvVars) (string, error) {
@@ -108,6 +109,7 @@ func fetchAllAccessPoints(env EnvVars) ([]AccessPointReadFromApGUI, error) {
 		aps[i] = AccessPointReadFromApGUI{
 			HostName:          hostName,
 			ActiveConnections: activeConnections,
+			IpAddress:         apData[13].(string),
 		}
 	}
 
