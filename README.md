@@ -15,5 +15,11 @@ ap_connections{hostname="ap-02"} 13
 ap_connections{hostname="ap-03"} 12
 ```
 
+## build
+
+```
+go build -ldflags="-w -s -extldflags '-static'" -o=dist/wlx212-gui-scraping-exporter
+```
+
 ## Author
 kory33
