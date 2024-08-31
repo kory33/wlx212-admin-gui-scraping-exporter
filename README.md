@@ -15,6 +15,12 @@ ap_connections{hostname="ap-02"} 13
 ap_connections{hostname="ap-03"} 12
 ```
 
+Example response on `/aplist`
+
+```
+[{"hostname":"ap-01","active_connections":10},{"hostname":"ap-02","active_connections":13},{"hostname":"ap-03","active_connections":12}]
+```
+
 ## build
 
 ```
