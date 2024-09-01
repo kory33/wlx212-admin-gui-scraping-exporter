@@ -232,7 +232,7 @@ func reconstructAllApData(env EnvVars) ([]ReconstructedApData, error) {
 
 	// fan-out fetching details and then join all.
 	// This process may fail, in which case nil must be communicated.
-	detailChan := make(chan *AccessPointDetailReadFromTargetApGUI)
+	reconstructedApDataChan := make(chan *ReconstructedApData)
 	for _, ap := range *aps {
 		go func() {
 			detail, err, allErrs := retryImmediately(
@@ -241,28 +241,28 @@ func reconstructAllApData(env EnvVars) ([]ReconstructedApData, error) {
 			)
 			if err != nil {
 				slog.Warn(fmt.Sprintf("error fetching detail for %s: error after %d retries: %v", ap.HostName, len(allErrs), err))
-				detailChan <- nil
+				reconstructedApDataChan <- nil
 				return
 			}
 			if len(allErrs) > 0 {
 				slog.Info(fmt.Sprintf("retried fetching detail for %s %d times, last error: %v", ap.HostName, len(allErrs), allErrs[len(allErrs)-1]))
 			}
-			detailChan <- detail
+			reconstructedApDataChan <- &ReconstructedApData{
+				AccessPointReadFromControllerGUI:     ap,
+				AccessPointDetailReadFromTargetApGUI: *detail,
+			}
 		}()
 	}
 
 	reconstructedAps := []ReconstructedApData{}
 	for _, ap := range *aps {
-		detail := <-detailChan
-		if detail == nil {
+		reconstructedApData := <-reconstructedApDataChan
+		if reconstructedApData == nil {
 			slog.Warn(fmt.Sprintf("No details obtained for %s", ap.HostName))
 			continue
 		}
 
-		reconstructedAps = append(reconstructedAps, ReconstructedApData{
-			AccessPointReadFromControllerGUI:     ap,
-			AccessPointDetailReadFromTargetApGUI: *detail,
-		})
+		reconstructedAps = append(reconstructedAps, *reconstructedApData)
 	}
 
 	return reconstructedAps, nil
